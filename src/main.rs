@@ -28,6 +28,7 @@ struct Options {
     flag_quiet: bool,
     flag_color: Option<String>,
     flag_git: bool,
+    flag_ignore_registry: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -83,6 +84,7 @@ Options:
     -q, --quiet              No output printed to stdout
     --color WHEN             Coloring: auto, always, never
     --no-delete              Don't delete older crates in the local registry directory
+    --ignore-registry REGISTRY  Ignore packages in the given registry
 "#;
 
     let options = Docopt::new(usage)
@@ -122,7 +124,12 @@ fn real_main(options: Options, config: &mut Config) -> CargoResult<()> {
         None => return Ok(()),
     };
 
-    sync(Path::new(lockfile), &path, &id, &options, config).with_context(|| "failed to sync")?;
+    let ignore_registry = match options.flag_ignore_registry {
+        Some(ref url) => Some(SourceId::for_registry(&Url::parse(url)?)?),
+        None => None,
+    };
+
+    sync(Path::new(lockfile), &path, &id, &options, config, ignore_registry.as_ref()).with_context(|| "failed to sync")?;
 
     println!(
         "add this to your .cargo/config somewhere:
@@ -148,6 +155,7 @@ fn sync(
     registry_id: &SourceId,
     options: &Options,
     config: &Config,
+    ignore_registry: Option<&SourceId>,
 ) -> CargoResult<()> {
     let no_delete = options.flag_no_delete.unwrap_or(false);
     let canonical_local_dst = local_dst.canonicalize().unwrap_or(local_dst.to_path_buf());
@@ -172,6 +180,8 @@ fn sync(
                 continue;
             }
         } else if !id.source_id().is_registry() {
+            continue;
+        } else if Some(&id.source_id()) == ignore_registry {
             continue;
         }
 
